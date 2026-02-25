@@ -66,15 +66,23 @@ def analyze_fault_window(start_idx):
     
     # 3. Calculate RMS and Phases
     V_fund_rms = (np.sqrt(2) / N) * np.abs(V_dft[1])
+    print(f"Fundamental DFT Voltage: {V_dft[1]:.2f}")
+    print(f"Fundamental RMS Voltage: {V_fund_rms:.2f} kV")
     I_fund_rms = (np.sqrt(2) / N) * np.abs(I_dft[1])
+    print(f"Fundamental DFT Current: {I_dft[1]:.2f}")
+    print(f"Fundamental RMS Current: {I_fund_rms:.2f} A")
     V_phase = np.degrees(np.angle(V_dft[1]))
+    print(f"Voltage Phase: {V_phase:.2f} degrees")
     I_phase = np.degrees(np.angle(I_dft[1]))
+    print(f"Current Phase: {I_phase:.2f} degrees")
     theta = V_phase - I_phase
+    print(f"Phase Angle: {theta:.2f} degrees")
     
     # DC Components (Bin 0)
     V_dc = (1/N) * np.abs(V_dft[0])
+    print(f"DC Component of Voltage: {V_dc:.2f} kV")
     I_dc = (1/N) * np.abs(I_dft[0])
-
+    print(f"DC Component of Current: {I_dc:.2f} A")
     # 4. Frequency Spectrum Setup
     freqs = np.fft.fftfreq(N, 1/Fs)
     pos_freqs = freqs[:N//2]
@@ -131,4 +139,42 @@ analyze_fault_window(0)
 
 # Check the END of the fault (301-336)
 analyze_fault_window(300)
+def estimate_parameters(df):
+    """
+    Estimates R and L using the trapezoidal rule on samples 301-336.
+    """
+    # Slice the data for samples 301-336 (indices 300 to 336)
+    window = df.iloc[300:336]
 
+    Time = window["Time(s)"].values
+    Voltage = window["Voltage(kV)"].values * 1000  # Convert kV to V
+    Current = window["Current(A)"].values
+
+    # 2. Setup Constants
+    # Calculate dt from the actual Time column to be precise
+    dt = Time[1] - Time[0] 
+
+    # 3. Build Matrices for the Differential Equation (Trapezoidal Rule)
+    # We have 36 samples, so we have 35 intervals between them
+    Y = 0.5 * (Voltage[1:] + Voltage[:-1])  # Average Voltage vector (35,)
+
+    col1 = 0.5 * (Current[1:] + Current[:-1])  # Average Current column
+    col2 = (Current[1:] - Current[:-1]) / dt   # di/dt column
+    A = np.column_stack((col1, col2))           # Matrix A (35, 2)
+
+    # 4. Solve using Least Squares
+    # This finds the best R and L to satisfy: V = R*I_avg + L*(di/dt)
+    x, residuals, rank, s = np.linalg.lstsq(A, Y, rcond=None)
+
+    R_est = x[0]
+    L_est = x[1]
+    X_est = 2 * np.pi * 60 * L_est  # Reactance at 60Hz
+
+    # 5. Output Results
+    print(f"--- Parameter Estimation (Samples 301-336) ---")
+    print(f"Resistance (R): {R_est:.4f} Ohms")
+    print(f"Inductance (L): {L_est:.4f} H")
+    print(f"Reactance (X):  {X_est:.4f} Ohms")
+    print(f"Total Impedance |Z|: {np.sqrt(R_est**2 + X_est**2):.4f} Ohms")
+# --- CALL THE FUNCTION ---
+estimate_parameters(df)
